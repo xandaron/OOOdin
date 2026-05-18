@@ -201,7 +201,7 @@ parapoly_class :: class($T: typeid) {
 
 parapoly: parapoly_class(i32)
 
-// Odina
+// Odin
 parapoly_class :: struct($T: typeid) {
 	field1: T,
 }
