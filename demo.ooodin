@@ -21,7 +21,7 @@ Test :: class {
 	// Class member functions
 	// 'init' is the constructor method for all classes.
 	// A class doesn't have to have an init method.
-	init :: proc(b: f32 /* Params are optional */) {
+	init :: proc(b: b32 /* Params are optional */) {
 		// 'this' is a keyword refering to the object the method was called on
 		// and is implicitly passed to all member functions. In order to read/write any object
 		// fields / call an object method you must use the 'this' keyword (Subject to change).
@@ -50,7 +50,7 @@ Test :: struct {
 	c: f32,
 }
 
-Test___init :: proc(this: ^Test, b: f32) {
+Test___init :: proc(this: ^Test, b: b32) {
 	this.a = 10
 	this.b = b
 	this.c = 1.0
@@ -69,29 +69,25 @@ Test___sub_a :: proc(this: ^Test, x: i32) -> i32 {
 
 // OOOdin
 t1: Test
+t1.init(false)
+defer t1.uninit()
+
 t1.sub_a(10)
+
 t2: ^Test = new(Test)
+t2.init(false)
+defer t2.uninit()
 
 // Odin
 t1: Test
-// constructor/destructor are implicitly called if they are defined
 Test___init(&t1)
 defer Test___uninit(&t1)
+
 Test___sub_a(&t1, 10)
 
 t2: ^Test = new(Test) // You are responsable for calling free on the pointer.
-// Note with pointers you are responsable for calling constructors and deconstructors.
-
-// If you don't want a class constructor to be called then use Odin's
-// "don't initalize" value.
-// OOOdin
-t1: Test = ---
-t2: ^Test = ---
-// You can always call the constructor method manually 't1.init()'.
-
-// Odin
-t1: Test = --- // Note this will also mean that struct fields won't have their memory zeroed.
-t2: ^Test = ---
+Test___init(&t2)
+defer Test___uninit(&t2)
 
 // OOOdin
 // Classes can inherit from other classes using the '#inherit' tag.
