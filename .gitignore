@@ -1,2 +1,4 @@
 timekeeping.txt
 *.exe
+*.pdb
+.zed
