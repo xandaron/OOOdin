@@ -1,0 +1,11 @@
+package Test
+
+a :: class {
+	f: f32,
+}
+
+b :: class {
+	i: int,
+}
+
+x :: class #inherits(a, b) {}
