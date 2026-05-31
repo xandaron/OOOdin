@@ -158,7 +158,8 @@ Proc_Lit :: struct {
 Proc_List :: struct {
 	using node: Node,
 	open:       tokenizer.Pos,
-	list:       []^Proc_Lit,
+	names:      []^Expr,
+	list:       []^Expr,
 	close:      tokenizer.Pos,
 }
 
@@ -558,7 +559,6 @@ Foreign_Import_Decl :: struct {
 	fullpaths:       []^Expr,
 	comment:         ^Comment_Group, // possibly nil
 }
-
 
 // Other things
 unparen_expr :: proc(expr: ^Expr) -> (val: ^Expr) {
@@ -983,6 +983,7 @@ Any_Node :: union {
 	^Attribute,
 	^Field,
 	^Field_List,
+	^Proc_List,
 	^Bit_Field_Field,
 }
 

@@ -167,7 +167,6 @@ walk :: proc(v: ^Visitor, node: ^Node) {
 		walk(v, n.constraints_string)
 		walk(v, n.asm_string)
 
-
 	case ^Bad_Stmt:
 	case ^Empty_Stmt:
 	case ^Expr_Stmt:
@@ -347,6 +346,10 @@ walk :: proc(v: ^Visitor, node: ^Node) {
 		for x in n.list {
 			walk(v, x)
 		}
+	case ^Proc_List:
+		for x in n.list {
+			walk(v, x)
+		} 
 	case ^Typeid_Type:
 		if n.specialization != nil {
 			walk(v, n.specialization)

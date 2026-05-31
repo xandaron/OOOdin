@@ -21,7 +21,7 @@ Test :: class {
 	// Class member functions
 	// 'init' is the constructor method for all classes.
 	// A class doesn't have to have an init method.
-	init :: proc(b: b32 /* Params are optional */) {
+	init :: proc(b: b32) {
 		// 'this' is a keyword refering to the object the method was called on
 		// and is implicitly passed to all member functions. In order to read/write any object
 		// fields / call an object method you must use the 'this' keyword (Subject to change).
@@ -75,6 +75,7 @@ defer t1.uninit()
 t1.sub_a(10)
 
 t2: ^Test = new(Test)
+defer free(t2)
 t2.init(false)
 defer t2.uninit()
 
@@ -195,14 +196,22 @@ parapoly_class :: class($T: typeid) {
 	field1: T,
 }
 
+para_inheritor :: class($T: typeid) #inherits(parapoly_class) {}
+
 parapoly: parapoly_class(i32)
+par_inherit: para_inheritor(i32)
 
 // Odin
 parapoly_class :: struct($T: typeid) {
 	field1: T,
 }
 
+para_inheritor :: struct($T: typeid) {
+	using base___parapoly_class : parapoly_class,	
+}
+
 parapoly: parapoly_class(i32)
+par_inherit: para_inheritor(i32)
 
 /*
 	For now this concludes the intended syntax and features of OOdin

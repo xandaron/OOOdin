@@ -299,6 +299,8 @@ clone_node :: proc(node: ^Node) -> ^Node {
 			r.default_value = clone(r.default_value)
 		case ^Field_List:
 			r.list = clone(r.list)
+		case ^Proc_List:
+			r.list = clone(r.list)
 		case ^Typeid_Type:
 			r.specialization = clone(r.specialization)
 		case ^Helper_Type:
@@ -339,6 +341,7 @@ clone_node :: proc(node: ^Node) -> ^Node {
 			r.min_field_align = clone(r.min_field_align)
 			r.max_field_align = clone(r.max_field_align)
 			r.fields = auto_cast clone(r.fields)
+			r.methods = auto_cast clone(r.methods)
 		case ^Union_Type:
 			r.poly_params = auto_cast clone(r.poly_params)
 			r.align = clone(r.align)

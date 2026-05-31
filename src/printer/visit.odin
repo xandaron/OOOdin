@@ -346,14 +346,10 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 
 			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}, .Value_Decl))
 		} else if len(v.values) > 0 && v.type != nil {
-			if v.type != nil {
-				lhs = cons_with_nopl(lhs, text(":"))
-			} else {
-				lhs = cons(lhs, text(":"))
-			}
+			lhs = cons_with_nopl(lhs, text(":"))
 			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}))
 		} else {
-			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}, .Value_Decl))
+			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}, .Value_Decl, v.names))
 		}
 
 		if len(v.values) > 0 {
@@ -550,6 +546,7 @@ visit_exprs :: proc(
 	list: []^ast.Expr,
 	options := List_Options{},
 	called_from: Expr_Called_Type = .Generic,
+	names: []^ast.Expr = nil,
 ) -> ^Document {
 	if len(list) == 0 {
 		return empty()
@@ -559,6 +556,10 @@ visit_exprs :: proc(
 
 	for expr, i in list {
 		p.source_position = expr.pos
+		name: ^ast.Expr = nil
+		if names != nil && len(names) > i {
+			name = names[i]
+		}
 
 		if .Enforce_Newline in options {
 			document = cons(
@@ -573,7 +574,7 @@ visit_exprs :: proc(
 		} else {
 			document = cons_with_opl(
 				document,
-				.Group in options ? group(visit_expr(p, expr, called_from, options)) : visit_expr(p, expr, called_from, options),
+				.Group in options ? group(visit_expr(p, expr, called_from, options, name)) : visit_expr(p, expr, called_from, options, name),
 			)
 		}
 
@@ -1488,6 +1489,7 @@ visit_expr :: proc(
 	expr: ^ast.Expr,
 	called_from: Expr_Called_Type = .Generic,
 	options := List_Options{},
+	name: ^ast.Expr = nil,
 ) -> ^Document {
 	if expr == nil {
 		return empty()
@@ -1872,19 +1874,12 @@ visit_expr :: proc(
 				visit_begin_brace(p, v.pos, .Generic),
 			)
 
-			set_source_position(p, v.fields.pos)
 			document = cons(
 				document,
 				nest(
 					cons(
 						newline_position(p, 1, v.fields.open),
-						group(
-							visit_class_inheritance(
-								p,
-								v.inherits,
-								{.Add_Comma, .Trailing},
-							),
-						),
+						group(visit_class_inheritance(p, v.inherits, {.Add_Comma, .Trailing})),
 						group(
 							visit_struct_field_list(
 								p,
@@ -1898,6 +1893,10 @@ visit_expr :: proc(
 			set_source_position(p, v.fields.end)
 
 			document = cons(document, newline(1), text_position(p, "}", v.end))
+		}
+
+		if v.methods != nil {
+			document = cons(document, visit_methods(p, name, v.methods))
 		}
 
 		set_source_position(p, v.end)
@@ -2437,7 +2436,7 @@ visit_class_inheritance :: proc(
 	options := List_Options{},
 ) -> ^Document {
 	document := empty()
-	for base in list {
+	for base, i in list {
 		set_source_position(p, base.pos)
 		name := visit_expr(p, base)
 		document = cons(
@@ -2447,9 +2446,31 @@ visit_class_inheritance :: proc(
 				cons_with_nopl(text(":"), name),
 			),
 			text(","),
-			newline(1),
+			newline(1) if i < len(list) - 1 else empty(),
 		)
 		set_source_position(p, base.end)
+	}
+	return document
+}
+
+@(private)
+visit_methods :: proc(
+	p: ^Printer,
+	class_name: ^ast.Expr,
+	methods: ^ast.Proc_List,
+	options := List_Options{},
+) -> ^Document {
+	document := empty()
+	for i in 0 ..< len(methods.list) {
+		document = cons(
+			document,
+			newline(2),
+			visit_expr(p, class_name, .Generic, options),
+			text("___"),
+			visit_expr(p, methods.names[i], .Generic, options),
+			text(" :: "),
+			visit_expr(p, methods.list[i], .Generic, options),
+		)
 	}
 	return document
 }

@@ -47,6 +47,8 @@ main :: proc() {
 			fmt.println(aerr)
 			return
 		}
+		output := printer.print(&prtr, file)
+		defer delete(output)
 
 		fp, ferr := os.create(fmt.tprintf("%s.odin", path))
 		if ferr != nil {
@@ -54,7 +56,7 @@ main :: proc() {
 			return
 		}
 
-		os.write(fp, transmute([]u8)printer.print(&prtr, file))
+		os.write(fp, transmute([]u8)output)
 	}
 }
 

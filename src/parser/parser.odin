@@ -464,7 +464,6 @@ expect_closing_token_of_field_list :: proc(
 	}
 	expect_closing := expect_token_after(p, closing_kind, msg)
 
-	
 	if expect_closing.kind != closing_kind {
 		for p.curr_tok.kind != closing_kind &&
 		    p.curr_tok.kind != .EOF &&
@@ -2243,11 +2242,12 @@ parse_class_fields :: proc(
 		p: ^Parser,
 		seen_ellipsis: ^bool,
 		fields: ^[dynamic]^ast.Field,
+		procs: ^[dynamic]^ast.Expr,
+		proc_names: ^[dynamic]^ast.Expr,
 		docs: ^ast.Comment_Group,
 		names: []^ast.Expr,
 		allowed_flags, set_flags: ast.Field_Flags,
 	) -> bool {
-
 		expect_field_separator :: proc(p: ^Parser, param: ^ast.Expr) -> bool {
 			tok := p.curr_tok
 			if allow_token(p, .Comma) {
@@ -2261,6 +2261,7 @@ parse_class_fields :: proc(
 			}
 			return false
 		}
+
 		is_type_ellipsis :: proc(type: ^ast.Expr) -> bool {
 			if type == nil {
 				return false
@@ -2280,7 +2281,13 @@ parse_class_fields :: proc(
 		tag: tokenizer.Token
 
 		expect_token_after(p, .Colon, "field list")
-		if p.curr_tok.kind != .Eq {
+		if p.curr_tok.kind == .Colon {
+			// Class member fn
+			advance_token(p)
+			append(procs, parse_proc_lit(p))
+			append(proc_names, names[0])
+			return expect_token(p, .Comma).kind == .Comma
+		} else if p.curr_tok.kind != .Eq {
 			type = parse_var_type(p, allowed_flags)
 			tt := ast.unparen_expr(type)
 			if is_signature && !any_polymorphic_names {
@@ -2349,7 +2356,8 @@ parse_class_fields :: proc(
 	docs := p.lead_comment
 
 	fields: [dynamic]^ast.Field
-	procs: [dynamic]^ast.Proc_Lit
+	procs: [dynamic]^ast.Expr
+	proc_names: [dynamic]^ast.Expr
 
 	list: [dynamic]Expr_And_Flags
 	defer delete(list)
@@ -2361,7 +2369,7 @@ parse_class_fields :: proc(
 
 	for p.curr_tok.kind != follow && p.curr_tok.kind != .Colon && p.curr_tok.kind != .EOF {
 		prefix_flags := parse_field_prefixes(p)
-		
+
 		param := parse_var_type(p, allowed_flags & {.Typeid_Token, .Ellipsis})
 		if _, ok := param.derived.(^ast.Ellipsis); ok {
 			if seen_ellipsis {
@@ -2414,7 +2422,7 @@ parse_class_fields :: proc(
 			set_flags = list[0].flags
 		}
 		total_name_count += len(names)
-		handle_field(p, &seen_ellipsis, &fields, docs, names, allowed_flags, set_flags)
+		handle_field(p, &seen_ellipsis, &fields, &procs, &proc_names, docs, names, allowed_flags, set_flags)
 
 		for p.curr_tok.kind != follow && p.curr_tok.kind != .EOF {
 			docs = p.lead_comment
@@ -2426,6 +2434,8 @@ parse_class_fields :: proc(
 				p,
 				&seen_ellipsis,
 				&fields,
+				&procs,
+				&proc_names,
 				docs,
 				names,
 				allowed_flags,
@@ -2436,6 +2446,9 @@ parse_class_fields :: proc(
 
 	field_list = ast.new(ast.Field_List, start_tok.pos, p.curr_tok.pos)
 	field_list.list = fields[:]
+	method_list = ast.new(ast.Proc_List, start_tok.pos, p.curr_tok.pos)
+	method_list.list = procs[:]
+	method_list.names = proc_names[:]
 	return
 }
 
@@ -2554,6 +2567,97 @@ parse_proc_type :: proc(p: ^Parser, tok: tokenizer.Token) -> ^ast.Proc_Type {
 	pt.diverging = diverging
 	pt.generic = is_generic
 	return pt
+}
+
+parse_proc_lit :: proc(p: ^Parser) -> ^ast.Expr {
+	tok := expect_token(p, .Proc)
+
+	if p.curr_tok.kind == .Open_Brace {
+		open := expect_token(p, .Open_Brace)
+
+		args: [dynamic]^ast.Expr
+
+		for p.curr_tok.kind != .Close_Brace && p.curr_tok.kind != .EOF {
+			elem := parse_expr(p, false)
+			append(&args, elem)
+
+			allow_token(p, .Comma) or_break
+		}
+
+		close := expect_closing_brace_of_field_list(p)
+
+		if len(args) == 0 {
+			error(p, tok.pos, "expected at least 1 argument in procedure group")
+		}
+
+		pg := ast.new(ast.Proc_Group, tok.pos, end_pos(close))
+		pg.tok = tok
+		pg.open = open.pos
+		pg.args = args[:]
+		pg.close = close.pos
+		return pg
+	}
+
+	type := parse_proc_type(p, tok)
+	tags: ast.Proc_Tags
+	where_token: tokenizer.Token
+	where_clauses: []^ast.Expr
+
+	skip_possible_newline_for_literal(p)
+
+	if p.curr_tok.kind == .Where {
+		where_token = expect_token(p, .Where)
+		prev_level := p.expr_level
+		p.expr_level = -1
+		where_clauses = parse_rhs_expr_list(p)
+		p.expr_level = prev_level
+	}
+	tags = parse_proc_tags(p)
+	type.tags = tags
+
+	if p.allow_type && p.expr_level < 0 {
+		if where_token.kind != .Invalid {
+			error(p, where_token.pos, "'where' clauses are not allowed on procedure types")
+		}
+		return type
+	}
+	body: ^ast.Stmt
+
+	skip_possible_newline_for_literal(p)
+
+	if allow_token(p, .Undef) {
+		body = nil
+		if where_token.kind != .Invalid {
+			error(
+				p,
+				where_token.pos,
+				"'where' clauses are not allowed on procedure literals without a defined body (replaced with ---",
+			)
+		}
+	} else if p.curr_tok.kind == .Open_Brace {
+		prev_proc := p.curr_proc
+		p.curr_proc = type
+		body = parse_body(p)
+		p.curr_proc = prev_proc
+	} else if allow_token(p, .Do) {
+		prev_proc := p.curr_proc
+		p.curr_proc = type
+		body = convert_stmt_to_body(p, parse_stmt(p))
+		p.curr_proc = prev_proc
+		if type.pos.line != body.pos.line {
+			error(p, body.pos, "the body of a 'do' must be on the same line as the signature")
+		}
+	} else {
+		return type
+	}
+
+	pl := ast.new(ast.Proc_Lit, tok.pos, end_pos(p.prev_tok))
+	pl.type = type
+	pl.body = body
+	pl.tags = tags
+	pl.where_token = where_token
+	pl.where_clauses = where_clauses
+	return pl
 }
 
 parse_inlining_or_tailing_operand :: proc(
@@ -2846,94 +2950,7 @@ parse_operand :: proc(p: ^Parser, lhs: bool) -> ^ast.Expr {
 		return parse_inlining_or_tailing_operand(p, lhs, tok)
 
 	case .Proc:
-		tok := expect_token(p, .Proc)
-
-		if p.curr_tok.kind == .Open_Brace {
-			open := expect_token(p, .Open_Brace)
-
-			args: [dynamic]^ast.Expr
-
-			for p.curr_tok.kind != .Close_Brace && p.curr_tok.kind != .EOF {
-				elem := parse_expr(p, false)
-				append(&args, elem)
-
-				allow_token(p, .Comma) or_break
-			}
-
-			close := expect_closing_brace_of_field_list(p)
-
-			if len(args) == 0 {
-				error(p, tok.pos, "expected at least 1 argument in procedure group")
-			}
-
-			pg := ast.new(ast.Proc_Group, tok.pos, end_pos(close))
-			pg.tok = tok
-			pg.open = open.pos
-			pg.args = args[:]
-			pg.close = close.pos
-			return pg
-		}
-
-		type := parse_proc_type(p, tok)
-		tags: ast.Proc_Tags
-		where_token: tokenizer.Token
-		where_clauses: []^ast.Expr
-
-		skip_possible_newline_for_literal(p)
-
-		if p.curr_tok.kind == .Where {
-			where_token = expect_token(p, .Where)
-			prev_level := p.expr_level
-			p.expr_level = -1
-			where_clauses = parse_rhs_expr_list(p)
-			p.expr_level = prev_level
-		}
-		tags = parse_proc_tags(p)
-		type.tags = tags
-
-		if p.allow_type && p.expr_level < 0 {
-			if where_token.kind != .Invalid {
-				error(p, where_token.pos, "'where' clauses are not allowed on procedure types")
-			}
-			return type
-		}
-		body: ^ast.Stmt
-
-		skip_possible_newline_for_literal(p)
-
-		if allow_token(p, .Undef) {
-			body = nil
-			if where_token.kind != .Invalid {
-				error(
-					p,
-					where_token.pos,
-					"'where' clauses are not allowed on procedure literals without a defined body (replaced with ---",
-				)
-			}
-		} else if p.curr_tok.kind == .Open_Brace {
-			prev_proc := p.curr_proc
-			p.curr_proc = type
-			body = parse_body(p)
-			p.curr_proc = prev_proc
-		} else if allow_token(p, .Do) {
-			prev_proc := p.curr_proc
-			p.curr_proc = type
-			body = convert_stmt_to_body(p, parse_stmt(p))
-			p.curr_proc = prev_proc
-			if type.pos.line != body.pos.line {
-				error(p, body.pos, "the body of a 'do' must be on the same line as the signature")
-			}
-		} else {
-			return type
-		}
-
-		pl := ast.new(ast.Proc_Lit, tok.pos, end_pos(p.prev_tok))
-		pl.type = type
-		pl.body = body
-		pl.tags = tags
-		pl.where_token = where_token
-		pl.where_clauses = where_clauses
-		return pl
+		return parse_proc_lit(p)
 
 	case .Dollar:
 		tok := advance_token(p)
@@ -3285,11 +3302,12 @@ parse_operand :: proc(p: ^Parser, lhs: bool) -> ^ast.Expr {
 		st.is_no_copy = is_no_copy
 		st.is_simple = is_simple
 		st.fields = fields
+		st.methods = methods
 		st.name_count = name_count
 		st.where_token = where_token
 		st.where_clauses = where_clauses
 		return st
-		
+
 	case .Union:
 		tok := expect_token(p, .Union)
 		poly_params: ^ast.Field_List
